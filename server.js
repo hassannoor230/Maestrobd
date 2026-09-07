@@ -167,6 +167,7 @@ const allowedOrigins = [
   'https://maestrobd-flax.vercel.app',
   'https://maestrobd-3jesyfdru-hassan-noors-projects.vercel.app',
   'https://maestro-p2wsc7uq7-hassan-noors-projects.vercel.app',
+  'https://maestro-cafe-gujranwala.vercel.app',
   ...(process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean)
 ];
 
