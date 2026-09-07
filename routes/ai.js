@@ -91,7 +91,7 @@ function getOpeningHoursStatus() {
   const pakistanTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Karachi' }));
   const hour = pakistanTime.getHours();
   
-  if (hour >= 12 && hour < 1) {
+  if (hour >= 12 || hour < 1) {
     return 'open';
   }
   return 'closed';

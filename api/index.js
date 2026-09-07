@@ -1,5 +1,1 @@
-const server = require('../server');
-
-module.exports = (req, res) => {
-  server.app(req, res);
-};
+module.exports = require('../server');

@@ -14,10 +14,10 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Trust proxy for Vercel/serverless deployment
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 
 // Ensure uploads directory exists
-const uploadsDir = path.join(__dirname, 'uploads');
+const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'maestro-uploads') : path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -161,17 +161,19 @@ const adminUser = {
 app.use(helmet({ contentSecurityPolicy: false }));
 
 // CORS configuration - allow Vercel production, preview, and local development
-const corsOrigin = process.env.CORS_ORIGIN 
-  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
-  : [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'https://maestrobd-flax.vercel.app',
-      'https://maestrobd-3jesyfdru-hassan-noors-projects.vercel.app'
-    ];
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'https://maestrobd-flax.vercel.app',
+  'https://maestrobd-3jesyfdru-hassan-noors-projects.vercel.app',
+  ...(process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean)
+];
 
-app.use(cors({ 
-  origin: corsOrigin, 
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origin not allowed by CORS'));
+  },
   credentials: true 
 }));
 app.use(express.json());
@@ -371,6 +373,9 @@ app.delete('/api/admin/menu/:id', auth, (req, res) => {
 
 // Image upload
 app.post('/api/admin/upload', auth, upload.single('image'), (req, res) => {
+  if (process.env.VERCEL) {
+    return res.status(503).json({ message: 'Image uploads require a persistent storage provider in production.' });
+  }
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
   const imageUrl = `/uploads/${req.file.filename}`;
   res.json({ url: imageUrl, filename: req.file.filename });
@@ -397,7 +402,7 @@ app.use((err, req, res, next) => {
 });
 
 // Export app for Vercel serverless deployment
-module.exports = { app };
+module.exports = app;
 
 // Start local development server only when running directly
 if (require.main === module) {
