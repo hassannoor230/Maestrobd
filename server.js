@@ -32,6 +32,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
   },
+  connectionTimeout: 10000,
+  socketTimeout: 15000,
+  greetingTimeout: 5000,
 });
 
 // Helper to send email without breaking the request if email fails
@@ -41,10 +44,11 @@ const sendEmail = async (mailOptions) => {
       console.warn('SMTP credentials not configured. Email not sent.');
       return;
     }
-    await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully');
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully:', info.messageId);
   } catch (error) {
     console.error('Email sending failed:', error.message);
+    console.error('SMTP Error details:', error);
   }
 };
 
@@ -289,7 +293,7 @@ app.get('/api/reviews', (req, res) => {
   res.json(reviews.filter(r => r.featured !== false));
 });
 
-app.post('/api/reservations', (req, res) => {
+app.post('/api/reservations', async (req, res) => {
   const { date, time, guests, name, phone, email, specialRequest, reservationType, selectedItem, deliveryAddress, deliveryPhone } = req.body;
   if (!date || !time || !guests || !name || !phone) {
     return res.status(400).json({ message: 'Missing required fields' });
@@ -311,7 +315,7 @@ app.post('/api/reservations', (req, res) => {
   const selectedItemText = selectedItem ? `\nSelected Item: ${selectedItem}` : '';
   const deliveryInfoText = reservationType === 'delivery' ? `\nDelivery Address: ${deliveryAddress}\nDelivery Phone: ${deliveryPhone}` : '';
   
-  sendEmail({
+  await sendEmail({
     from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
     to: email || process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com',
     subject: `Reservation Confirmed - Maestro Cafe (${reservationTypeText})`,
@@ -339,13 +343,13 @@ app.post('/api/reservations', (req, res) => {
   res.status(201).json({ message: 'Reservation request received. We will confirm shortly.', reservation });
 });
 
-app.post('/api/contact', (req, res) => {
+app.post('/api/contact', async (req, res) => {
   const { name, email, phone, message } = req.body;
   if (!name || !message) return res.status(400).json({ message: 'Name and message required' });
   const msg = { id: Date.now().toString(), name, email, phone, message, createdAt: new Date().toISOString() };
   messages.push(msg);
 
-  sendEmail({
+  await sendEmail({
     from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
     to: process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com',
     subject: `New Contact Message from ${name} - Maestro Cafe`,
