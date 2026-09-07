@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -23,41 +23,35 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Resend email client setup
-let resendClient = null;
-function getResendClient() {
-  if (!resendClient) {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (apiKey) {
-      resendClient = new Resend(apiKey);
-    }
+// Nodemailer transporter setup
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
+  },
+  connectionTimeout: 10000,
+  socketTimeout: 15000,
+  greetingTimeout: 5000,
+  tls: {
+    rejectUnauthorized: false
   }
-  return resendClient;
-}
+});
 
 // Helper to send email without breaking the request if email fails
 const sendEmail = async (mailOptions) => {
   try {
-    const client = getResendClient();
-    if (!client) {
-      console.warn('RESEND_API_KEY not configured. Email not sent.');
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      console.warn('SMTP credentials not configured. Email not sent.');
       return;
     }
-    const { data, error } = await client.emails.send({
-      from: mailOptions.from || process.env.SMTP_FROM || 'Maestro Cafe <onboarding@resend.dev>',
-      to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
-      subject: mailOptions.subject,
-      html: mailOptions.html,
-      replyTo: mailOptions.replyTo,
-    });
-    if (error) {
-      console.error('Resend email error:', error);
-    } else {
-      console.log('Email sent successfully via Resend:', data?.id);
-    }
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully:', info.messageId);
   } catch (error) {
     console.error('Email sending failed:', error.message);
-    console.error('Email Error details:', error);
+    console.error('SMTP Error details:', error);
   }
 };
 
