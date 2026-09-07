@@ -166,6 +166,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'https://maestrobd-flax.vercel.app',
   'https://maestrobd-3jesyfdru-hassan-noors-projects.vercel.app',
+  'https://maestro-p2wsc7uq7-hassan-noors-projects.vercel.app',
   ...(process.env.CORS_ORIGIN || '').split(',').map(o => o.trim()).filter(Boolean)
 ];
 
@@ -179,6 +180,14 @@ app.use(cors({
 app.use(express.json());
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadsDir));
+
+// Vercel may strip /api before invoking the serverless function.
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api')) {
+    req.url = `/api${req.url.startsWith('/') ? '' : '/'}${req.url}`;
+  }
+  next();
+});
 
 // Rate limiter with Vercel-safe IP detection
 const limiter = rateLimit({ 
