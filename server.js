@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -21,6 +22,31 @@ const uploadsDir = process.env.VERCEL ? path.join('/tmp', 'maestro-uploads') : p
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
+
+// Nodemailer transporter setup
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD,
+  },
+});
+
+// Helper to send email without breaking the request if email fails
+const sendEmail = async (mailOptions) => {
+  try {
+    if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
+      console.warn('SMTP credentials not configured. Email not sent.');
+      return;
+    }
+    await transporter.sendMail(mailOptions);
+    console.log('Email sent successfully');
+  } catch (error) {
+    console.error('Email sending failed:', error.message);
+  }
+};
 
 // Multer setup for image uploads
 const storage = multer.diskStorage({
@@ -280,6 +306,36 @@ app.post('/api/reservations', (req, res) => {
   };
   reservations.push(reservation);
   console.log('New reservation:', reservation);
+
+  const reservationTypeText = reservationType === 'delivery' ? 'Delivery' : 'Dine-in';
+  const selectedItemText = selectedItem ? `\nSelected Item: ${selectedItem}` : '';
+  const deliveryInfoText = reservationType === 'delivery' ? `\nDelivery Address: ${deliveryAddress}\nDelivery Phone: ${deliveryPhone}` : '';
+  
+  sendEmail({
+    from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
+    to: email || process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com',
+    subject: `Reservation Confirmed - Maestro Cafe (${reservationTypeText})`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #D4AF37;">🍽️ Reservation Confirmed</h2>
+        <p>Dear ${name},</p>
+        <p>Thank you for your ${reservationTypeText.toLowerCase()} reservation at Maestro Cafe. Here are your booking details:</p>
+        <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${date}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Time</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${time}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Guests</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${guests}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Type</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${reservationTypeText}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Phone</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${phone}</td></tr>
+          ${selectedItemText ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Selected Item</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${selectedItem}</td></tr>` : ''}
+          ${deliveryInfoText ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Delivery Address</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${deliveryAddress}</td></tr>` : ''}
+        </table>
+        ${specialRequest ? `<p><strong>Special Request:</strong> ${specialRequest}</p>` : ''}
+        <p>We will confirm your reservation shortly. For any changes, please call us at +92 55 3821477.</p>
+        <p>Best regards,<br>Maestro Cafe Team</p>
+      </div>
+    `,
+  });
+
   res.status(201).json({ message: 'Reservation request received. We will confirm shortly.', reservation });
 });
 
@@ -288,6 +344,24 @@ app.post('/api/contact', (req, res) => {
   if (!name || !message) return res.status(400).json({ message: 'Name and message required' });
   const msg = { id: Date.now().toString(), name, email, phone, message, createdAt: new Date().toISOString() };
   messages.push(msg);
+
+  sendEmail({
+    from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
+    to: process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com',
+    subject: `New Contact Message from ${name} - Maestro Cafe`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #D4AF37;">📩 New Contact Message</h2>
+        <p><strong>Name:</strong> ${name}</p>
+        <p><strong>Email:</strong> ${email || 'Not provided'}</p>
+        <p><strong>Phone:</strong> ${phone || 'Not provided'}</p>
+        <p><strong>Message:</strong></p>
+        <div style="background: #f9f9f9; padding: 15px; border-left: 4px solid #D4AF37; margin: 10px 0;">${message.replace(/\n/g, '<br>')}</div>
+        <p>Received on: ${new Date().toLocaleString()}</p>
+      </div>
+    `,
+  });
+
   res.status(201).json({ message: 'Message sent successfully' });
 });
 
