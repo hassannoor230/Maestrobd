@@ -6,7 +6,7 @@ const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config();
@@ -23,32 +23,41 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Nodemailer transporter setup
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASSWORD,
-  },
-  connectionTimeout: 10000,
-  socketTimeout: 15000,
-  greetingTimeout: 5000,
-});
+// Resend email client setup
+let resendClient = null;
+function getResendClient() {
+  if (!resendClient) {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (apiKey) {
+      resendClient = new Resend(apiKey);
+    }
+  }
+  return resendClient;
+}
 
 // Helper to send email without breaking the request if email fails
 const sendEmail = async (mailOptions) => {
   try {
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-      console.warn('SMTP credentials not configured. Email not sent.');
+    const client = getResendClient();
+    if (!client) {
+      console.warn('RESEND_API_KEY not configured. Email not sent.');
       return;
     }
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully:', info.messageId);
+    const { data, error } = await client.emails.send({
+      from: mailOptions.from || process.env.SMTP_FROM || 'Maestro Cafe <onboarding@resend.dev>',
+      to: Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to],
+      subject: mailOptions.subject,
+      html: mailOptions.html,
+      replyTo: mailOptions.replyTo,
+    });
+    if (error) {
+      console.error('Resend email error:', error);
+    } else {
+      console.log('Email sent successfully via Resend:', data?.id);
+    }
   } catch (error) {
     console.error('Email sending failed:', error.message);
-    console.error('SMTP Error details:', error);
+    console.error('Email Error details:', error);
   }
 };
 
@@ -315,9 +324,13 @@ app.post('/api/reservations', async (req, res) => {
   const selectedItemText = selectedItem ? `\nSelected Item: ${selectedItem}` : '';
   const deliveryInfoText = reservationType === 'delivery' ? `\nDelivery Address: ${deliveryAddress}\nDelivery Phone: ${deliveryPhone}` : '';
   
+  const recipients = [];
+  if (email) recipients.push(email);
+  recipients.push(process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com');
+
   await sendEmail({
     from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
-    to: email || process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com',
+    to: recipients,
     subject: `Reservation Confirmed - Maestro Cafe (${reservationTypeText})`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
