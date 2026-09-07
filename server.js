@@ -204,6 +204,10 @@ const auth = (req, res, next) => {
 
 // ========== PUBLIC ROUTES ==========
 
+app.get('/', (req, res) => {
+  res.json({ success: true, message: 'Maestro Cafe API is running', api: '/api' });
+});
+
 // AI Concierge Chat
 const aiRouter = require('./routes/ai');
 app.use('/api/ai', aiRouter);
