@@ -77,14 +77,7 @@ const limiter = rateLimit({
   max: 20,
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) {
-      return forwarded.split(',')[0].trim();
-    }
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  legacyHeaders: false
 });
 
 function formatMenuItems() {

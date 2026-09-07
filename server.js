@@ -14,8 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Trust proxy for Vercel/serverless deployment
-// Use a safe value: trust first proxy only (Vercel)
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -168,7 +167,7 @@ const corsOrigin = process.env.CORS_ORIGIN
       'http://localhost:5173',
       'http://localhost:3000',
       'https://maestrobd-flax.vercel.app',
-      'https://maestrobd-flax.vercel.app'
+      'https://maestrobd-3jesyfdru-hassan-noors-projects.vercel.app'
     ];
 
 app.use(cors({ 
@@ -184,16 +183,7 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 2000,
   standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    // Use the first IP from X-Forwarded-For (Vercel sets this), 
-    // fallback to remote address
-    const forwarded = req.headers['x-forwarded-for'];
-    if (forwarded) {
-      return forwarded.split(',')[0].trim();
-    }
-    return req.ip || req.connection.remoteAddress || 'unknown';
-  }
+  legacyHeaders: false
 });
 app.use('/api/', limiter);
 
