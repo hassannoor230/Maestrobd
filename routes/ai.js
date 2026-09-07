@@ -4,9 +4,16 @@ const rateLimit = require('express-rate-limit');
 const OpenAI = require('openai');
 require('dotenv').config();
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || '',
-});
+// Lazy OpenAI client initialization - only create when API key is available
+let client = null;
+function getClient() {
+  if (client) return client;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (apiKey && apiKey.trim() !== '' && !apiKey.includes('your_openai')) {
+    client = new OpenAI({ apiKey });
+  }
+  return client;
+}
 
 const menuItems = require('../data/menu');
 const settings = {
@@ -69,6 +76,15 @@ const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  }
 });
 
 function formatMenuItems() {
@@ -259,6 +275,12 @@ router.post('/chat', limiter, async (req, res) => {
     }
 
     try {
+      const openaiClient = getClient();
+      if (!openaiClient) {
+        const response = generateResponse(message, []);
+        return res.json({ response, sessionId });
+      }
+
       const conversation = aiConversations.find(c => c.sessionId === sessionId);
       const messages = conversation?.messages || [];
       
@@ -268,7 +290,7 @@ router.post('/chat', limiter, async (req, res) => {
         { role: 'user', content: message }
       ];
 
-      const completion = await client.chat.completions.create({
+      const completion = await openaiClient.chat.completions.create({
         model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
         messages: openaiMessages,
         max_tokens: 500,

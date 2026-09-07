@@ -13,6 +13,10 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Trust proxy for Vercel/serverless deployment
+// Use a safe value: trust first proxy only (Vercel)
+app.set('trust proxy', 1);
+
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -156,15 +160,41 @@ const adminUser = {
 
 // Middleware
 app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS configuration - allow Vercel production, preview, and local development
+const corsOrigin = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+  : [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://maestrobd-flax.vercel.app',
+      'https://maestrobd-flax.vercel.app'
+    ];
+
 app.use(cors({ 
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173', 
+  origin: corsOrigin, 
   credentials: true 
 }));
 app.use(express.json());
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadsDir));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 2000 });
+// Rate limiter with Vercel-safe IP detection
+const limiter = rateLimit({ 
+  windowMs: 15 * 60 * 1000, 
+  max: 2000,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Use the first IP from X-Forwarded-For (Vercel sets this), 
+    // fallback to remote address
+    const forwarded = req.headers['x-forwarded-for'];
+    if (forwarded) {
+      return forwarded.split(',')[0].trim();
+    }
+    return req.ip || req.connection.remoteAddress || 'unknown';
+  }
+});
 app.use('/api/', limiter);
 
 // Auth middleware
@@ -185,6 +215,16 @@ const auth = (req, res, next) => {
 // AI Concierge Chat
 const aiRouter = require('./routes/ai');
 app.use('/api/ai', aiRouter);
+
+// API health endpoint
+app.get('/api', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Maestro Cafe API is running', 
+    status: 'healthy',
+    version: '1.0.0'
+  });
+});
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Maestro Cafe API running' });
@@ -346,8 +386,33 @@ app.post('/api/admin/upload', auth, upload.single('image'), (req, res) => {
   res.json({ url: imageUrl, filename: req.file.filename });
 });
 
-// Start
-app.listen(PORT, () => {
-  console.log(`\n🍽️  Maestro Cafe API running on http://localhost:${PORT}`);
-  console.log(`   Admin login: admin@maestrocafe.com / maestro2026\n`);
+// API 404 handler - only for unknown API routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: 'API endpoint not found',
+    path: req.originalUrl 
+  });
 });
+
+// Global error handler - production safe
+app.use((err, req, res, next) => {
+  console.error('Error:', err.message);
+  res.status(err.status || 500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production' 
+      ? 'Something went wrong. Please try again.' 
+      : err.message
+  });
+});
+
+// Export app for Vercel serverless deployment
+module.exports = { app };
+
+// Start local development server only when running directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`\n🍽️  Maestro Cafe API running on http://localhost:${PORT}`);
+    console.log(`   Admin login: admin@maestrocafe.com / maestro2026\n`);
+  });
+}
