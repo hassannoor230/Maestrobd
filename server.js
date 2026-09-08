@@ -212,6 +212,14 @@ app.use(cors({
   credentials: true 
 }));
 app.use(express.json());
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.error('JSON body parse error:', err.body);
+    console.error('Content-Type:', req.headers['content-type']);
+    return res.status(400).json({ message: 'Invalid JSON in request body' });
+  }
+  next(err);
+});
 app.use(morgan('dev'));
 app.use('/uploads', express.static(uploadsDir));
 
@@ -297,13 +305,26 @@ app.get('/api/reviews', (req, res) => {
 });
 
 app.post('/api/reservations', async (req, res) => {
-  const { date, time, guests, name, phone, email, specialRequest, reservationType, selectedItem, deliveryAddress, deliveryPhone } = req.body;
-  if (!date || !time || !guests || !name || !phone) {
-    return res.status(400).json({ message: 'Missing required fields' });
+  console.log('Reservation request body:', JSON.stringify(req.body));
+  const { date, time, guests, name, phone, email, specialRequest, reservationType, selectedItem, deliveryAddress, deliveryPhone } = req.body || {};
+  const missing = [];
+  if (!date) missing.push('date');
+  if (!time) missing.push('time');
+  if (!guests) missing.push('guests');
+  if (!name) missing.push('name');
+  if (!phone) missing.push('phone');
+  if (missing.length > 0) {
+    console.error('Missing required fields:', missing.join(', '));
+    return res.status(400).json({ message: 'Missing required fields: ' + missing.join(', ') });
   }
+  const trimmedName = typeof name === 'string' ? name.trim() : '';
+  const trimmedPhone = typeof phone === 'string' ? phone.trim() : '';
+  const trimmedDate = typeof date === 'string' ? date.trim() : '';
+  const trimmedTime = typeof time === 'string' ? time.trim() : '';
+  const trimmedGuests = typeof guests === 'string' ? guests.trim() : guests;
   const reservation = {
     id: Date.now().toString(),
-    date, time, guests, name, phone, email: email || '', specialRequest: specialRequest || '',
+    date: trimmedDate, time: trimmedTime, guests: trimmedGuests, name: trimmedName, phone: trimmedPhone, email: email || '', specialRequest: specialRequest || '',
     reservationType: reservationType || 'dine-in',
     selectedItem: selectedItem || null,
     deliveryAddress: deliveryAddress || '',
@@ -319,7 +340,8 @@ app.post('/api/reservations', async (req, res) => {
   const deliveryInfoText = reservationType === 'delivery' ? `\nDelivery Address: ${deliveryAddress}\nDelivery Phone: ${deliveryPhone}` : '';
   
   const recipients = [];
-  if (email) recipients.push(email);
+  const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+  if (trimmedEmail) recipients.push(trimmedEmail);
   recipients.push(process.env.ADMIN_EMAIL || 'maestro.cafe.gujranwala@gmail.com');
 
   await sendEmail({
@@ -329,14 +351,14 @@ app.post('/api/reservations', async (req, res) => {
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #D4AF37;">🍽️ Reservation Confirmed</h2>
-        <p>Dear ${name},</p>
+        <p>Dear ${trimmedName},</p>
         <p>Thank you for your ${reservationTypeText.toLowerCase()} reservation at Maestro Cafe. Here are your booking details:</p>
         <table style="border-collapse: collapse; width: 100%; margin: 20px 0;">
-          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${date}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Time</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${time}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Guests</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${guests}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Date</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${trimmedDate}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Time</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${trimmedTime}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Guests</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${trimmedGuests}</td></tr>
           <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Type</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${reservationTypeText}</td></tr>
-          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Phone</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${phone}</td></tr>
+          <tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Phone</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${trimmedPhone}</td></tr>
           ${selectedItemText ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Selected Item</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${selectedItem}</td></tr>` : ''}
           ${deliveryInfoText ? `<tr><td style="padding: 8px; border: 1px solid #ddd;"><strong>Delivery Address</strong></td><td style="padding: 8px; border: 1px solid #ddd;">${deliveryAddress}</td></tr>` : ''}
         </table>
