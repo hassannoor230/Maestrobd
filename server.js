@@ -75,15 +75,51 @@ const upload = multer({
   }
 });
 
-// In-memory stores
-let reservations = [];
-let reviews = [
+// In-memory stores with file-based persistence for serverless
+const dataDir = process.env.VERCEL ? '/tmp/maestro-data' : path.join(__dirname, 'data');
+const dataFiles = {
+  reservations: path.join(dataDir, 'reservations.json'),
+  reviews: path.join(dataDir, 'reviews.json'),
+  messages: path.join(dataDir, 'messages.json'),
+  settings: path.join(dataDir, 'settings.json'),
+  menuItems: path.join(dataDir, 'menuItems.json'),
+};
+
+// Ensure data directory exists
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
+
+const loadFromFile = (fileKey, defaultValue) => {
+  try {
+    const filePath = dataFiles[fileKey];
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(content);
+    }
+  } catch (e) {
+    console.error(`Failed to load ${fileKey}:`, e.message);
+  }
+  return defaultValue;
+};
+
+const saveToFile = (fileKey, data) => {
+  try {
+    const filePath = dataFiles[fileKey];
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error(`Failed to save ${fileKey}:`, e.message);
+  }
+};
+
+let reservations = loadFromFile('reservations', []);
+let reviews = loadFromFile('reviews', [
   { id: '1', name: 'Maximus Decimus / Hamza Jawed', rating: 5, text: 'Maestro Café – A Trusted Favorite for 12 Years! Cozy atmosphere and friendly staff.', featured: true },
   { id: '2', name: 'Happy Guest', rating: 5, text: 'Order pe cake tiyar karwaya 1540/- 2 pound, best in taste Maestro never disappoint!', featured: true },
   { id: '3', name: 'Local Foodie', rating: 5, text: 'The Polo Stuffed Chicken is exceptional. Ambiance is perfect for a special evening.', featured: true }
-];
-let messages = [];
-let settings = {
+]);
+let messages = loadFromFile('messages', []);
+let settings = loadFromFile('settings', {
   name: 'Maestro Cafe',
   tagline: 'Bringing Class to the Cuisine!',
   phone: '+92 55 3821477',
@@ -106,8 +142,8 @@ let settings = {
   bannerText: '',
   bannerLink: '',
   bannerBgColor: 'gold'
-};
-let menuItems = [
+});
+let menuItems = loadFromFile('menuItems', [
   { id: "1", name: "Polo Stuffed Chicken", price: 1490, category: "chef", description: "Fried chicken breast stuffed with spinach & cheese. Served with mashed potatoes & sauteed vegetables.", featured: true, popular: true, image: '' },
   { id: "2", name: "Three Cheese Chicken", price: 1490, category: "chef", description: "Fried chicken stuffed with mushrooms & cheese. Served with fries.", featured: true, image: '' },
   { id: "3", name: "Stuffed Chicken With Creamy Mushroom Sauce", price: 1490, category: "chef", description: "Fried chicken breast stuffed with cheese topped with white mushroom sauce.", image: '' },
@@ -182,7 +218,7 @@ let menuItems = [
   { id: "72", name: "Ranch Mania Open Face Burger", price: 910, category: "burger", description: "Ranch Mania Open Face Burger.", image: '' },
   { id: "73", name: "Grilled Chicken Burger", price: 830, category: "burger", description: "Grilled Chicken Burger.", image: '' },
   { id: "74", name: "East Land Burger", price: 895, category: "burger", description: "East Land Burger.", image: '' }
-];
+]);
 
 // Simple admin user
 const adminUser = {
@@ -333,6 +369,7 @@ app.post('/api/reservations', async (req, res) => {
     createdAt: new Date().toISOString()
   };
   reservations.push(reservation);
+  saveToFile('reservations', reservations);
   console.log('New reservation:', reservation);
 
   const reservationTypeText = reservationType === 'delivery' ? 'Delivery' : 'Dine-in';
@@ -377,6 +414,7 @@ app.post('/api/contact', async (req, res) => {
   if (!name || !message) return res.status(400).json({ message: 'Name and message required' });
   const msg = { id: Date.now().toString(), name, email, phone, message, createdAt: new Date().toISOString() };
   messages.push(msg);
+  saveToFile('messages', messages);
 
   await sendEmail({
     from: process.env.SMTP_FROM || 'Maestro Cafe <noreply@maestrocafe.com>',
@@ -430,6 +468,7 @@ app.patch('/api/admin/reservations/:id', auth, (req, res) => {
   const r = reservations.find(x => x.id === req.params.id);
   if (!r) return res.status(404).json({ message: 'Not found' });
   if (req.body.status) r.status = req.body.status;
+  saveToFile('reservations', reservations);
   res.json(r);
 });
 
@@ -444,17 +483,20 @@ app.get('/api/admin/reviews', auth, (req, res) => {
 app.post('/api/admin/reviews', auth, (req, res) => {
   const review = { id: Date.now().toString(), ...req.body };
   reviews.push(review);
+  saveToFile('reviews', reviews);
   res.status(201).json(review);
 });
 
 app.delete('/api/admin/reviews/:id', auth, (req, res) => {
   reviews = reviews.filter(r => r.id !== req.params.id);
+  saveToFile('reviews', reviews);
   res.json({ message: 'Deleted' });
 });
 
 // Settings
 app.put('/api/admin/settings', auth, (req, res) => {
   settings = { ...settings, ...req.body };
+  saveToFile('settings', settings);
   res.json(settings);
 });
 
@@ -475,6 +517,7 @@ app.post('/api/admin/menu', auth, (req, res) => {
     image: req.body.image || ''
   };
   menuItems.push(item);
+  saveToFile('menuItems', menuItems);
   res.status(201).json(item);
 });
 
@@ -482,6 +525,7 @@ app.put('/api/admin/menu/:id', auth, (req, res) => {
   const index = menuItems.findIndex(i => i.id === req.params.id);
   if (index === -1) return res.status(404).json({ message: 'Item not found' });
   menuItems[index] = { ...menuItems[index], ...req.body, id: req.params.id };
+  saveToFile('menuItems', menuItems);
   res.json(menuItems[index]);
 });
 
@@ -489,6 +533,7 @@ app.delete('/api/admin/menu/:id', auth, (req, res) => {
   const index = menuItems.findIndex(i => i.id === req.params.id);
   if (index === -1) return res.status(404).json({ message: 'Item not found' });
   menuItems.splice(index, 1);
+  saveToFile('menuItems', menuItems);
   res.json({ message: 'Deleted' });
 });
 
